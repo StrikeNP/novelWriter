@@ -58,7 +58,8 @@ class GuiWritingStats(QDialog):
     C_LENGTH = 1
     C_IDLE   = 2
     C_COUNT  = 3
-    C_BAR    = 4
+    C_WPH = 4
+    C_BAR    = 5
 
     FMT_JSON = 0
     FMT_CSV  = 1
@@ -99,6 +100,9 @@ class GuiWritingStats(QDialog):
         wCol3 = CONFIG.pxInt(
             pOptions.getInt("GuiWritingStats", "widthCol3", 80)
         )
+        wCol4 = CONFIG.pxInt(
+            pOptions.getInt("GuiWritingStats", "widthCol4", 80)
+        )
 
         self.listBox = QTreeWidget()
         self.listBox.setHeaderLabels([
@@ -106,18 +110,21 @@ class GuiWritingStats(QDialog):
             self.tr("Length"),
             self.tr("Idle"),
             self.tr("Words"),
+            self.tr("WPH"),
             self.tr("Histogram"),
         ])
         self.listBox.setIndentation(0)
         self.listBox.setColumnWidth(self.C_TIME, wCol0)
         self.listBox.setColumnWidth(self.C_LENGTH, wCol1)
         self.listBox.setColumnWidth(self.C_IDLE, wCol2)
-        self.listBox.setColumnWidth(self.C_COUNT, wCol3)
+        self.listBox.setColumnWidth(self.C_WPH, wCol3)
+        self.listBox.setColumnWidth(self.C_COUNT, wCol4)
 
         hHeader = self.listBox.headerItem()
         if hHeader is not None:
             hHeader.setTextAlignment(self.C_LENGTH, Qt.AlignRight)
             hHeader.setTextAlignment(self.C_IDLE, Qt.AlignRight)
+            hHeader.setTextAlignment(self.C_WPH, Qt.AlignRight)
             hHeader.setTextAlignment(self.C_COUNT, Qt.AlignRight)
 
         sortCol = minmax(pOptions.getInt("GuiWritingStats", "sortCol", 0), 0, 2)
@@ -163,12 +170,17 @@ class GuiWritingStats(QDialog):
         self.totalWords.setFont(SHARED.theme.guiFontFixed)
         self.totalWords.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
 
+        self.wordsPerHour = QLabel("0")
+        self.wordsPerHour.setFont(SHARED.theme.guiFontFixed)
+        self.wordsPerHour.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
+
         lblTTime   = QLabel(self.tr("Total Time:"))
         lblITime   = QLabel(self.tr("Idle Time:"))
         lblFTime   = QLabel(self.tr("Filtered Time:"))
         lblNvCount = QLabel(self.tr("Novel Word Count:"))
         lblNtCount = QLabel(self.tr("Notes Word Count:"))
         lblTtCount = QLabel(self.tr("Total Word Count:"))
+        lblWph = QLabel(self.tr("Avg Words Per Hour:"))
 
         self.infoForm.addWidget(lblTTime,   0, 0)
         self.infoForm.addWidget(lblITime,   1, 0)
@@ -176,6 +188,7 @@ class GuiWritingStats(QDialog):
         self.infoForm.addWidget(lblNvCount, 3, 0)
         self.infoForm.addWidget(lblNtCount, 4, 0)
         self.infoForm.addWidget(lblTtCount, 5, 0)
+        self.infoForm.addWidget(lblWph, 6, 0)
 
         self.infoForm.addWidget(self.labelTotal,  0, 1)
         self.infoForm.addWidget(self.labelIdleT,  1, 1)
@@ -183,8 +196,9 @@ class GuiWritingStats(QDialog):
         self.infoForm.addWidget(self.novelWords,  3, 1)
         self.infoForm.addWidget(self.notesWords,  4, 1)
         self.infoForm.addWidget(self.totalWords,  5, 1)
+        self.infoForm.addWidget(self.wordsPerHour,  6, 1)
 
-        self.infoForm.setRowStretch(6, 1)
+        self.infoForm.setRowStretch(7, 1)
 
         # Filter Options
         sPx = SHARED.theme.baseIconSize
@@ -320,6 +334,7 @@ class GuiWritingStats(QDialog):
         widthCol1    = CONFIG.rpxInt(self.listBox.columnWidth(1))
         widthCol2    = CONFIG.rpxInt(self.listBox.columnWidth(2))
         widthCol3    = CONFIG.rpxInt(self.listBox.columnWidth(3))
+        widthCol4    = CONFIG.rpxInt(self.listBox.columnWidth(4))
         sortCol      = self.listBox.sortColumn()
         sortOrder    = self.listBox.header().sortIndicatorOrder()
         incNovel     = self.incNovel.isChecked()
@@ -337,6 +352,7 @@ class GuiWritingStats(QDialog):
         pOptions.setValue("GuiWritingStats", "widthCol1",    widthCol1)
         pOptions.setValue("GuiWritingStats", "widthCol2",    widthCol2)
         pOptions.setValue("GuiWritingStats", "widthCol3",    widthCol3)
+        pOptions.setValue("GuiWritingStats", "widthCol4",    widthCol4)
         pOptions.setValue("GuiWritingStats", "sortCol",      sortCol)
         pOptions.setValue("GuiWritingStats", "sortOrder",    sortOrder)
         pOptions.setValue("GuiWritingStats", "incNovel",     incNovel)
@@ -383,7 +399,7 @@ class GuiWritingStats(QDialog):
             with open(savePath, mode="w", encoding="utf-8") as outFile:
                 if dataFmt == self.FMT_JSON:
                     jsonData = []
-                    for _, sD, tT, wD, wA, wB, tI in self.filterData:
+                    for _, sD, tT, wD, wA, wB, tI, wph in self.filterData:
                         jsonData.append({
                             "date": sD,
                             "length": tT,
@@ -391,6 +407,7 @@ class GuiWritingStats(QDialog):
                             "novelWords": wA,
                             "noteWords": wB,
                             "idleTime": tI,
+                            "wordsPerHour": wph
                         })
                     json.dump(jsonData, outFile, indent=2)
                     wSuccess = True
@@ -398,10 +415,10 @@ class GuiWritingStats(QDialog):
                 if dataFmt == self.FMT_CSV:
                     outFile.write(
                         '"Date","Length (sec)","Words Changed",'
-                        '"Novel Words","Note Words","Idle Time (sec)"\n'
+                        '"Novel Words","Note Words","Idle Time (sec)","Words Per Hour"\n'
                     )
-                    for _, sD, tT, wD, wA, wB, tI in self.filterData:
-                        outFile.write(f'"{sD}",{tT:.0f},{wD},{wA},{wB},{tI}\n')
+                    for _, sD, tT, wD, wA, wB, tI, wph in self.filterData:
+                        outFile.write(f'"{sD}",{tT:.0f},{wD},{wA},{wB},{tI},{wph}\n')
                     wSuccess = True
 
         except Exception as exc:
@@ -464,11 +481,13 @@ class GuiWritingStats(QDialog):
                 self.logData.append((dStart, sDiff, wcNovel, wcNotes, sIdle))
 
         ttWords = ttNovel + ttNotes
+        avgWph = round(ttWords / max(1,(ttTime/60.0/60.0)))
         self.labelTotal.setText(formatTime(round(ttTime)))
         self.labelIdleT.setText(formatTime(round(ttIdle)))
         self.novelWords.setText(f"{ttNovel:n}")
         self.notesWords.setText(f"{ttNotes:n}")
         self.totalWords.setText(f"{ttWords:n}")
+        self.wordsPerHour.setText(f"{avgWph:n}")
 
         return
 
@@ -551,13 +570,15 @@ class GuiWritingStats(QDialog):
             else:
                 sStart = dStart.strftime(nwConst.FMT_TSTAMP)
 
-            self.filterData.append((dStart, sStart, sDiff, dwTotal, wcNovel, wcNotes, sIdle))
+            wph = round((dwTotal) / (sDiff / 60.0 / 60.0))
+
+            self.filterData.append((dStart, sStart, sDiff, dwTotal, wcNovel, wcNotes, sIdle, wph))
             listMax = min(max(listMax, dwTotal), histMax)
             pcTotal = wcTotal
 
         # Populate the list
         showIdleTime = self.showIdleTime.isChecked()
-        for _, sStart, sDiff, nWords, _, _, sIdle in self.filterData:
+        for _, sStart, sDiff, nWords, _, _, sIdle, wph in self.filterData:
 
             if showIdleTime:
                 idleEntry = formatTime(sIdle)
@@ -569,6 +590,7 @@ class GuiWritingStats(QDialog):
             newItem.setText(self.C_TIME, sStart)
             newItem.setText(self.C_LENGTH, formatTime(round(sDiff)))
             newItem.setText(self.C_IDLE, idleEntry)
+            newItem.setText(self.C_WPH, f"{wph}")
             newItem.setText(self.C_COUNT, f"{nWords:n}")
 
             if nWords > 0 and listMax > 0:
@@ -583,11 +605,13 @@ class GuiWritingStats(QDialog):
             newItem.setTextAlignment(self.C_LENGTH, Qt.AlignRight)
             newItem.setTextAlignment(self.C_IDLE, Qt.AlignRight)
             newItem.setTextAlignment(self.C_COUNT, Qt.AlignRight)
+            newItem.setTextAlignment(self.C_WPH, Qt.AlignRight)
             newItem.setTextAlignment(self.C_BAR, Qt.AlignLeft | Qt.AlignVCenter)
 
             newItem.setFont(self.C_TIME, SHARED.theme.guiFontFixed)
             newItem.setFont(self.C_LENGTH, SHARED.theme.guiFontFixed)
             newItem.setFont(self.C_COUNT, SHARED.theme.guiFontFixed)
+            newItem.setFont(self.C_WPH, SHARED.theme.guiFontFixed)
             newItem.setFont(self.C_IDLE, SHARED.theme.guiFontFixed)
 
             self.listBox.addTopLevelItem(newItem)
